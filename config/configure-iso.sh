@@ -44,6 +44,13 @@ else
     echo "No RakuOS installer package available, skipping..."
 fi
 
+# rakuos-installer-qt is a QtQuick/QQC2 app importing `org.kde.desktop`; that
+# QML module ships in kf6-qqc2-desktop-style, which Plasma ISO builds pull in
+# implicitly but our Hyprland build doesn't -> installer dies with
+# 'QQmlApplicationEngine failed to load component ... module "org.kde.desktop"
+# is not installed' otherwise.
+rum -qy install kf6-qqc2-desktop-style 2>/dev/null || true
+
 # Allow the RakuOS installer's local `oci:` re-export of this image to pass
 # signature policy: the default policy.json (default: reject, per-registry
 # allowances only under the `docker` transport) has no `oci` transport entry,
