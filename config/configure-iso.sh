@@ -59,11 +59,10 @@ PY
 # Mask overlay services so they cannot be started or pulled in on the live ISO
 systemctl mask rakuos-overlay-sync.service rakuos-overlay-mount.service
 
-# Setup Hyprland session for livesys (fix: livesys-scripts doesn't know hyprland)
+# Hyprland session entry so the noctalia greeter can offer it. livesys_session
+# is set below, in the live-session block (same place the official ISOs set it).
 mkdir -p /usr/share/wayland-sessions
 ln -sf /usr/share/wayland-sessions/hyprland-uwsm.desktop /usr/share/wayland-sessions/hyprland.desktop 2>/dev/null || true
-mkdir -p /etc/livesys
-echo 'livesys_session="hyprland"' > /etc/sysconfig/livesys
 
 # Read packages into array and install
 # Normalize -git names: the image ships noctalia-greeter-git, never pull the
@@ -102,11 +101,7 @@ git clone --depth 1 --quiet https://gitlab.com/rakuos/iso/iso-base.git /root/pac
 
 ### Desktop-environment specific tweaks ###
 
-# Setup Hyprland session for livesys-scripts (hyprland not in its case statement)
-# Symlink as "niri" so livesys-scripts recognizes it, then fix config below
-mkdir -p /usr/share/wayland-sessions
-ln -sf hyprland-uwsm.desktop /usr/share/wayland-sessions/niri.desktop 2>/dev/null || true
-ln -sf hyprland-uwsm.desktop /usr/share/wayland-sessions/hyprland.desktop 2>/dev/null || true
+# (hyprland.desktop already created above; no niri alias needed)
 
 # Use GSK_RENDERER=gl for NVIDIA — workaround for GTK apps not opening
 if [[ $imageref == *-nvidia* ]]; then
@@ -135,72 +130,57 @@ fi
 # rakuos-forge's desktop detection - which doesn't know hyprland - is skipped)
 rum -y install livesys-scripts 2>/dev/null || true
 
-# Ensure a live user exists for the noctalia greeter. If livesys' factory seed
-# (/usr/share/factory/.../livesys-session-extra) is missing from the image, the
-# user/home never gets created and login dies with "unable to set working
-# directory: Permission denied (error 13)". Creating it here applies only to the
-# live tree (ISO hook), never to the installed system.
-# bootc/ostree images don't ship a real /home directory — it may be absent, a
-# placeholder file, or a dangling symlink to /var/home. Ensure a real directory
-# exists before useradd -m. Note: `-e` follows symlinks, so a dangling symlink
-# reads as false — must also test `-L`.
-if [ -L /home ] || { [ -e /home ] && [ ! -d /home ]; }; then
-    rm -f /home
-fi
-mkdir -p /home
-chmod 0755 /home
-if ! getent passwd liveuser >/dev/null 2>&1; then
-    useradd -m -d /home/liveuser -s /bin/bash -G wheel liveuser
-    echo "liveuser:liveuser" | chpasswd
-fi
-echo "liveuser ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/liveuser
-chown root:root /etc/sudoers.d/liveuser
-chmod 0440 /etc/sudoers.d/liveuser
-
-# Auto-login to Hyprland for the live user (skip the greeter in live sessions).
-# Masks/overrides only touch the live tree, never the installed system.
-systemctl mask greetd.service greetd.socket 2>/dev/null || true
-
-mkdir -p /etc/systemd/system/getty@tty1.service.d
-cat > /etc/systemd/system/getty@tty1.service.d/autologin.conf <<'EOF'
-[Service]
-ExecStart=
-ExecStart=-/usr/sbin/agetty --autologin liveuser --noclear --skip-login tty1 %I
-EOF
-systemctl enable getty@tty1.service 2>/dev/null || true
-
-cat > /home/liveuser/.bash_profile <<'EOF'
-if [ -z "$DISPLAY" ] && [ -z "$WAYLAND_DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then
-    exec dbus-run-session -- uwsm start hyprland
-fi
-EOF
-chown -R liveuser:liveuser /home/liveuser
-chmod 0755 /home/liveuser
-
-mkdir -p /etc/sysconfig
-sed -i 's/^livesys_session=.*/livesys_session=hyprland/' /etc/sysconfig/livesys 2>/dev/null ||
-    echo 'livesys_session=hyprland' > /etc/sysconfig/livesys
-
+# Live session: follow the exact scheme used by the official RakuOS ISOs
+# (cosmic/gnome/niri) - livesys.service creates `liveuser` + /home/liveuser at
+# BOOT (never at build time: build-time /home is lost in the squashfs, which is
+# what caused "error 13: Permission denied"), and the desktop is launched by
+# greetd autologin via [initial_session]. No getty autologin, no shell-profile
+# exec, no build-time useradd.
+echo 'livesys_session=hyprland' > /etc/sysconfig/livesys
 systemctl enable livesys.service livesys-late.service 2>/dev/null || true
 
-# We start Hyprland via getty autologin above; keep livesys-scripts from also
-# launching a session (it would double-start Hyprland and fight for the seat).
-systemctl mask livesys-session.service livesys-session@.service 2>/dev/null || true
+# Ship the factory livesys-session-extra seed (identical to what rakuos-forge
+# installs with --livesys for DE images) so the live boot sets the hostname and
+# timezone, and runs any /var/lib/livesys/livesys-session-extra.d/ scripts.
+mkdir -p /usr/share/factory/var/lib/livesys
+cat > /usr/share/factory/var/lib/livesys/livesys-session-extra <<'EOF'
+#!/bin/bash
 
+. /etc/os-release
+
+usermod -c "$NAME User" liveuser
+hostnamectl hostname "$ID"
+
+timedatectl set-timezone UTC
+ln -s /usr/share/zoneinfo/UTC /etc/localtime
+
+if [ -d /var/lib/livesys/livesys-session-extra.d ]; then
+  find /var/lib/livesys/livesys-session-extra.d -type f -exec /bin/bash {} \;
+fi
+EOF
+chmod 0644 /usr/share/factory/var/lib/livesys/livesys-session-extra
 mkdir -p /usr/lib/tmpfiles.d
 echo "C /var/lib/livesys/livesys-session-extra 0755 root root - /usr/share/factory/var/lib/livesys/livesys-session-extra" > \
     /usr/lib/tmpfiles.d/livesys-session-extra.conf
 
-# Fix greetd config - livesys-scripts sets up niri, we need noctalia-greeter for Hyprland
+# greetd: same config as the installed system (noctalia greeter), plus an
+# [initial_session] autologin for liveuser - exactly how rakuos-forge sets up
+# the live desktops on the cosmic/niri official ISOs.
 mkdir -p /etc/greetd
-cat > /etc/greetd/config.toml << 'GREETD'
+cat > /etc/greetd/config.toml <<'GREETD'
 [terminal]
 vt = 1
 
 [default_session]
 user = "greeter"
 command = "/usr/bin/noctalia-greeter-session"
+
+[initial_session]
+user = "liveuser"
+command = "dbus-run-session -- uwsm start hyprland"
 GREETD
+systemctl unmask greetd.service greetd.socket 2>/dev/null || true
+systemctl enable greetd.service 2>/dev/null || true
 
 # Don't show the motd verification notice
 rm -vf /etc/profile.d/verify_motd.sh
