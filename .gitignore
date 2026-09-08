@@ -1,0 +1,6 @@
+# Build artifacts
+work/
+output/
+output.iso
+*.iso
+*.iso.sha256
