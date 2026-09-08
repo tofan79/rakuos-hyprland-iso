@@ -178,6 +178,11 @@ echo "C /var/lib/livesys/livesys-session-extra 0755 root root - /usr/share/facto
 # greetd: same config as the installed system (noctalia greeter), plus an
 # [initial_session] autologin for liveuser - exactly how rakuos-forge sets up
 # the live desktops on the cosmic/niri official ISOs.
+#
+# Note: run Hyprland directly (`dbus-run-session -- hyprland`), NOT through
+# uwsm: greetd sessions have no systemd --user manager, so `uwsm start` fails
+# activating org.freedesktop.systemd1. Direct hyprland is the canonical
+# greetd+Hyprland pattern (used by CachyOS live etc).
 mkdir -p /etc/greetd
 cat > /etc/greetd/config.toml <<'GREETD'
 [terminal]
@@ -189,7 +194,7 @@ command = "/usr/bin/noctalia-greeter-session"
 
 [initial_session]
 user = "liveuser"
-command = "dbus-run-session -- uwsm start hyprland"
+command = "dbus-run-session -- hyprland"
 GREETD
 systemctl unmask greetd.service greetd.socket 2>/dev/null || true
 systemctl enable greetd.service 2>/dev/null || true
