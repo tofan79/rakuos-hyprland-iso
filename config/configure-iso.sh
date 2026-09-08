@@ -17,6 +17,11 @@ fi
 # (build-time only; no packages are installed from terra during ISO assembly).
 sed -ri 's/^(gpgcheck|repo_gpgcheck)=1/\1=0/' /etc/yum.repos.d/terra.repo
 
+# Make dnf/rum resilient to flaky mirrorlists (rpmfusion & co often return no
+# usable mirror on a transient basis, which would fail the whole ISO build).
+grep -qx 'retries=10' /etc/dnf/dnf.conf 2>/dev/null || echo 'retries=10' >> /etc/dnf/dnf.conf
+grep -qx 'timeout=60' /etc/dnf/dnf.conf 2>/dev/null || echo 'timeout=60' >> /etc/dnf/dnf.conf
+
 # sudo requires drop-in files to be owned by root and not be writable by others
 chown root:root /etc/sudoers.d
 chmod 0750 /etc/sudoers.d
