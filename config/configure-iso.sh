@@ -66,6 +66,9 @@ mkdir -p /etc/livesys
 echo 'livesys_session="hyprland"' > /etc/sysconfig/livesys
 
 # Read packages into array and install
+# Normalize -git names: the image ships noctalia-greeter-git, never pull the
+# stable drop of the same binary (rpm file conflict on shared /usr/bin/*).
+sed -i 's/^noctalia-greeter$/noctalia-greeter-git/' /usr/share/rakuos/packages-live.list
 mapfile -t PACKAGES < <(
     grep -v '^\s*#' "/usr/share/rakuos/packages-live.list" \
     | grep -v '^\s*$' \
