@@ -137,7 +137,11 @@ rum -y install livesys-scripts 2>/dev/null || true
 # user/home never gets created and login dies with "unable to set working
 # directory: Permission denied (error 13)". Creating it here applies only to the
 # live tree (ISO hook), never to the installed system.
-# bootc/ostree images don't ship /home — create it before useradd -m.
+# bootc/ostree images don't ship a real /home directory — it may be absent or
+# a placeholder file/symlink. Ensure a real directory exists before useradd -m.
+if [ -e /home ] && [ ! -d /home ]; then
+    rm -f /home
+fi
 mkdir -p /home
 chmod 0755 /home
 if ! getent passwd liveuser >/dev/null 2>&1; then
