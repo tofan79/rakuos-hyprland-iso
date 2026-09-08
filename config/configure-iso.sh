@@ -178,6 +178,10 @@ sed -i 's/^livesys_session=.*/livesys_session=hyprland/' /etc/sysconfig/livesys 
 
 systemctl enable livesys.service livesys-late.service 2>/dev/null || true
 
+# We start Hyprland via getty autologin above; keep livesys-scripts from also
+# launching a session (it would double-start Hyprland and fight for the seat).
+systemctl mask livesys-session.service livesys-session@.service 2>/dev/null || true
+
 mkdir -p /usr/lib/tmpfiles.d
 echo "C /var/lib/livesys/livesys-session-extra 0755 root root - /usr/share/factory/var/lib/livesys/livesys-session-extra" > \
     /usr/lib/tmpfiles.d/livesys-session-extra.conf
