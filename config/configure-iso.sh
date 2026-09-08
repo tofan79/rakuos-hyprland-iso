@@ -132,6 +132,19 @@ fi
 # rakuos-forge's desktop detection - which doesn't know hyprland - is skipped)
 rum -y install livesys-scripts 2>/dev/null || true
 
+# Ensure a live user exists for the noctalia greeter. If livesys' factory seed
+# (/usr/share/factory/.../livesys-session-extra) is missing from the image, the
+# user/home never gets created and login dies with "unable to set working
+# directory: Permission denied (error 13)". Creating it here applies only to the
+# live tree (ISO hook), never to the installed system.
+if ! getent passwd liveuser >/dev/null 2>&1; then
+    useradd -m -d /home/liveuser -s /bin/bash -G wheel liveuser
+    echo "liveuser:liveuser" | chpasswd
+fi
+echo "liveuser ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/liveuser
+chown root:root /etc/sudoers.d/liveuser
+chmod 0440 /etc/sudoers.d/liveuser
+
 mkdir -p /etc/sysconfig
 sed -i 's/^livesys_session=.*/livesys_session=hyprland/' /etc/sysconfig/livesys 2>/dev/null ||
     echo 'livesys_session=hyprland' > /etc/sysconfig/livesys
