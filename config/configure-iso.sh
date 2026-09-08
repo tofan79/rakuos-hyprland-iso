@@ -145,6 +145,26 @@ echo "liveuser ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/liveuser
 chown root:root /etc/sudoers.d/liveuser
 chmod 0440 /etc/sudoers.d/liveuser
 
+# Auto-login to Hyprland for the live user (skip the greeter in live sessions).
+# Masks/overrides only touch the live tree, never the installed system.
+systemctl mask greetd.service greetd.socket 2>/dev/null || true
+
+mkdir -p /etc/systemd/system/getty@tty1.service.d
+cat > /etc/systemd/system/getty@tty1.service.d/autologin.conf <<'EOF'
+[Service]
+ExecStart=
+ExecStart=-/usr/sbin/agetty --autologin liveuser --noclear --skip-login tty1 %I
+EOF
+systemctl enable getty@tty1.service 2>/dev/null || true
+
+cat > /home/liveuser/.bash_profile <<'EOF'
+if [ -z "$DISPLAY" ] && [ -z "$WAYLAND_DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then
+    exec dbus-run-session -- uwsm start hyprland
+fi
+EOF
+chown -R liveuser:liveuser /home/liveuser
+chmod 0755 /home/liveuser
+
 mkdir -p /etc/sysconfig
 sed -i 's/^livesys_session=.*/livesys_session=hyprland/' /etc/sysconfig/livesys 2>/dev/null ||
     echo 'livesys_session=hyprland' > /etc/sysconfig/livesys
