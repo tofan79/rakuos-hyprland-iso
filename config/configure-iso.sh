@@ -130,6 +130,13 @@ fi
 # rakuos-forge's desktop detection - which doesn't know hyprland - is skipped)
 rum -y install livesys-scripts 2>/dev/null || true
 
+# dbus-run-session: the live desktop is started by greetd via
+# `dbus-run-session -- uwsm start hyprland`, but /usr/bin/dbus-run-session is
+# provided by the `dbus-daemon` package, which the base (dbus-broker) image
+# doesn't ship -> greetd's initial_session dies with "exec: dbus-run-session:
+# not found" and falls back to the greeter. Install it on the live tree.
+rum -y install dbus-daemon
+
 # Live session: follow the exact scheme used by the official RakuOS ISOs
 # (cosmic/gnome/niri) - livesys.service creates `liveuser` + /home/liveuser at
 # BOOT (never at build time: build-time /home is lost in the squashfs, which is
