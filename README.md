@@ -22,8 +22,8 @@ cd rakuos-hyprland-iso
 # Build ISO (image: quay.io/mindset404/hyprland-atomic:latest)
 sudo ./build-local.sh
 
-# Or a specific tag
-sudo ./build-local.sh staging
+# Or a specific date tag (e.g. kept under the retention policy)
+sudo ./build-local.sh 20260908
 ```
 
 ## Output
