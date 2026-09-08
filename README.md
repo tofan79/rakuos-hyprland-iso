@@ -42,6 +42,18 @@ sudo ./build-local.sh 20260908
 - `config/pre_initramfs.sh` sets up the kernel/initramfs based on the
   NVIDIA dGPU stack.
 
+## Noctalia polkit agent (live session)
+
+Noctalia's built-in polkit agent (needed by `rakuos-installer-qt` and other
+privileged GUI apps) ships **off by default**. On the live ISO, enable it once
+per session: **Noctalia settings → polkit agent → on** — otherwise the
+installer fails with:
+
+```
+[err] Error creating textual authentication agent: Error opening current
+controlling terminal for the process ('/dev/tty'): No such device or address
+```
+
 ## Image Source
 
 Image: `quay.io/mindset404/hyprland-atomic`
