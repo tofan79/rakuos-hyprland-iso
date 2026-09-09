@@ -1,7 +1,7 @@
 # RakuOS Hyprland ISO
 
 Local build scripts for the RakuOS Hyprland live ISO, built from
-`quay.io/mindset404/hyprland-atomic`.
+`quay.io/mindset404/hyprland-nvidia-v3`.
 
 ## Requirements
 
@@ -19,7 +19,7 @@ sudo dnf install -y rakuos-forge
 ```bash
 cd rakuos-hyprland-iso
 
-# Build ISO (image: quay.io/mindset404/hyprland-atomic:latest)
+# Build ISO (image: quay.io/mindset404/hyprland-nvidia-v3:latest)
 sudo ./build-local.sh
 
 # Or a specific date tag (e.g. kept under the retention policy)
@@ -33,7 +33,7 @@ sudo ./build-local.sh 20260908
 
 ## What the build does
 
-- Pulls `quay.io/mindset404/hyprland-atomic:latest` (built in the
+- Pulls `quay.io/mindset404/hyprland-nvidia-v3:latest` (built in the
   `tofan79/hyprland-rakuos` repo CI)
 - Builds a live ISO with `rakuos-forge build --livesys false` — livesys
   handling is done manually in `config/configure-iso.sh` (greetd/noctalia
@@ -56,4 +56,4 @@ controlling terminal for the process ('/dev/tty'): No such device or address
 
 ## Image Source
 
-Image: `quay.io/mindset404/hyprland-atomic`
+Image: `quay.io/mindset404/hyprland-nvidia-v3`

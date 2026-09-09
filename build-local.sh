@@ -2,7 +2,7 @@
 # Build the RakuOS Hyprland ISO locally using the rakuos-forge binary.
 #
 # Usage: ./build-local.sh [branch_slug]
-#   branch_slug defaults to "latest" (i.e. quay.io/mindset404/hyprland-atomic:latest)
+#   branch_slug defaults to "latest" (i.e. quay.io/mindset404/hyprland-nvidia-v3:latest)
 #
 # Requires `rakuos-forge` to be installed (dnf install rakuos-forge, after
 # adding https://repo.rakuos.org/rakuos.repo).
@@ -31,7 +31,7 @@ rm -f "${SELF_DIR}/output.iso"
 rm -rf "${SELF_DIR}/output"
 rm -rf "${SELF_DIR}/work"
 
-IMAGE_REPO="quay.io/mindset404/hyprland-atomic"
+IMAGE_REPO="quay.io/mindset404/hyprland-nvidia-v3"
 BRANCH_SLUG="${1:-latest}"
 IMAGE_REF="${IMAGE_REPO}:${BRANCH_SLUG}"
 COMPRESSION="${COMPRESSION:-squashfs}"
