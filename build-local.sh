@@ -50,6 +50,12 @@ export HOOK_post_rootfs="${SELF_DIR}/config/configure-iso.sh"
 export HOOK_pre_initramfs="${SELF_DIR}/config/pre_initramfs.sh"
 
 cd "${SELF_DIR}"
+
+# Force a fresh pull of the target image so a stale local ":latest" cache can
+# never produce an ISO from an older build (live packages come from the
+# image's own /usr/share/rakuos/packages-live.list, so freshness matters).
+podman pull "${IMAGE_REF}"
+
 rakuos-forge build "${IMAGE_REF}" --compression "${COMPRESSION}" --container-image "${IMAGE_REF}" --livesys false
 
 mkdir -p "${SELF_DIR}/output"
