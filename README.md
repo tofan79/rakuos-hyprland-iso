@@ -36,9 +36,9 @@ sudo ./build-local.sh 20260908
 - Pulls `quay.io/mindset404/hyprland-nvidia-v3:latest` (built in the
   `tofan79/hyprland-rakuos` repo CI)
 - Builds a live ISO with `rakuos-forge build --livesys false` — livesys
-  handling is done manually in `config/configure-iso.sh` (greetd/noctalia
-  greeter, hyprland session), since livesys-scripts runs before the config
-  hooks.
+  handling is done manually in `config/configure-iso.sh` (SDDM X11 greeter,
+  `liveuser` autologin, and the Hyprland Wayland/UWSM session), since
+  livesys-scripts runs before the config hooks.
 - `config/pre_initramfs.sh` sets up the kernel/initramfs based on the
   NVIDIA dGPU stack.
 

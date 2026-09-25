@@ -71,15 +71,12 @@ PY
 # Mask overlay services so they cannot be started or pulled in on the live ISO
 systemctl mask rakuos-overlay-sync.service rakuos-overlay-mount.service
 
-# Hyprland session entry so the noctalia greeter can offer it. livesys_session
-# is set below, in the live-session block (same place the official ISOs set it).
+# Hyprland session entry for SDDM. livesys_session is set below, in the
+# live-session block (same place the official ISOs set it).
 mkdir -p /usr/share/wayland-sessions
 ln -sf /usr/share/wayland-sessions/hyprland-uwsm.desktop /usr/share/wayland-sessions/hyprland.desktop 2>/dev/null || true
 
 # Read packages into array and install
-# Normalize -git names: the image ships noctalia-greeter-git, never pull the
-# stable drop of the same binary (rpm file conflict on shared /usr/bin/*).
-sed -i 's/^noctalia-greeter$/noctalia-greeter-git/' /usr/share/rakuos/packages-live.list
 mapfile -t PACKAGES < <(
     grep -v '^\s*#' "/usr/share/rakuos/packages-live.list" \
     | grep -v '^\s*$' \
@@ -142,19 +139,17 @@ fi
 # rakuos-forge's desktop detection - which doesn't know hyprland - is skipped)
 rum -y install livesys-scripts 2>/dev/null || true
 
-# dbus-run-session: the live desktop is started by greetd via
-# `dbus-run-session -- uwsm start hyprland`, but /usr/bin/dbus-run-session is
-# provided by the `dbus-daemon` package, which the base (dbus-broker) image
-# doesn't ship -> greetd's initial_session dies with "exec: dbus-run-session:
-# not found" and falls back to the greeter. Install it on the live tree.
+# dbus-run-session: the live Hyprland desktop runs under UWSM, but
+# /usr/bin/dbus-run-session is provided by the `dbus-daemon` package, which the
+# base (dbus-broker) image doesn't ship. Install it on the live tree.
 rum -y install dbus-daemon
 
 # Live session: follow the exact scheme used by the official RakuOS ISOs
 # (cosmic/gnome/niri) - livesys.service creates `liveuser` + /home/liveuser at
 # BOOT (never at build time: build-time /home is lost in the squashfs, which is
-# what caused "error 13: Permission denied"), and the desktop is launched by
-# greetd autologin via [initial_session]. No getty autologin, no shell-profile
-# exec, no build-time useradd.
+# what caused "error 13: Permission denied"). SDDM autologin starts only in this
+# live tree, after livesys has created the user. No getty autologin, no
+# shell-profile exec, no build-time useradd.
 echo 'livesys_session=hyprland' > /etc/sysconfig/livesys
 systemctl enable livesys.service livesys-late.service 2>/dev/null || true
 
@@ -182,29 +177,27 @@ mkdir -p /usr/lib/tmpfiles.d
 echo "C /var/lib/livesys/livesys-session-extra 0755 root root - /usr/share/factory/var/lib/livesys/livesys-session-extra" > \
     /usr/lib/tmpfiles.d/livesys-session-extra.conf
 
-# greetd: same config as the installed system (noctalia greeter), plus an
-# [initial_session] autologin for liveuser - exactly how rakuos-forge sets up
-# the live desktops on the cosmic/niri official ISOs.
-#
-# Note: run Hyprland directly (`dbus-run-session -- hyprland`), NOT through
-# uwsm: greetd sessions have no systemd --user manager, so `uwsm start` fails
-# activating org.freedesktop.systemd1. Direct hyprland is the canonical
-# greetd+Hyprland pattern (used by CachyOS live etc).
-mkdir -p /etc/greetd
-cat > /etc/greetd/config.toml <<'GREETD'
-[terminal]
-vt = 1
+# SDDM keeps the installed image's X11 greeter, while this ISO-only drop-in
+# enables autologin for liveuser. The systemd ordering prevents SDDM from
+# checking the user before livesys.service creates it.
+mkdir -p /etc/sddm.conf.d
+cat > /etc/sddm.conf.d/90-live.conf << 'SDDM'
+[Autologin]
+User=liveuser
+Session=hyprland-uwsm
+Relogin=false
+SDDM
 
-[default_session]
-user = "greeter"
-command = "/usr/bin/noctalia-greeter-session"
+mkdir -p /etc/systemd/system/sddm.service.d
+cat > /etc/systemd/system/sddm.service.d/90-live-session.conf << 'UNIT'
+[Unit]
+Wants=livesys.service
+After=livesys.service
+UNIT
 
-[initial_session]
-user = "liveuser"
-command = "dbus-run-session -- hyprland"
-GREETD
-systemctl unmask greetd.service greetd.socket 2>/dev/null || true
-systemctl enable greetd.service 2>/dev/null || true
+systemctl disable greetd.service greetd.socket 2>/dev/null || true
+systemctl unmask sddm.service 2>/dev/null || true
+systemctl enable sddm.service
 
 # Don't show the motd verification notice
 rm -vf /etc/profile.d/verify_motd.sh
