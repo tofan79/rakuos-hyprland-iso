@@ -71,10 +71,15 @@ PY
 # Mask overlay services so they cannot be started or pulled in on the live ISO
 systemctl mask rakuos-overlay-sync.service rakuos-overlay-mount.service
 
-# Hyprland session entry for SDDM. livesys_session is set below, in the
-# live-session block (same place the official ISOs set it).
-mkdir -p /usr/share/wayland-sessions
-ln -sf /usr/share/wayland-sessions/hyprland-uwsm.desktop /usr/share/wayland-sessions/hyprland.desktop 2>/dev/null || true
+# NOTE: no manual hyprland.desktop alias here anymore. The hyprland /
+# hyprland-uwsm packages installed below already ship their own native
+# /usr/share/wayland-sessions/hyprland.desktop (plain) and
+# hyprland-uwsm.desktop (UWSM-managed) entries. Symlinking one over the
+# other here — before the packages were even installed — clobbered the
+# package's own hyprland.desktop, so SDDM only ever showed one real
+# session instead of both "Hyprland" and "Hyprland (uwsm)".
+# livesys_session is set below, in the live-session block (same place the
+# official ISOs set it).
 
 # Read packages into array and install
 mapfile -t PACKAGES < <(
@@ -108,9 +113,16 @@ echo "RakuOS release $VERSION_ID ($VERSION_CODENAME)" >/etc/system-release
 # Get shared artwork and system files from iso-base
 git clone --depth 1 --quiet https://gitlab.com/rakuos/iso/iso-base.git /root/packages
 
-### Desktop-environment specific tweaks ###
+# Apply iso-base's shared files FIRST. This must happen before the SDDM /
+# livesys / graphical.target configuration below, otherwise a raw `cp -af`
+# from iso-base can silently overwrite /etc/sddm.conf.d/*, the sddm.service
+# systemd drop-in, or /etc/systemd/system/default.target, undoing the
+# autologin + graphical.target setup and leaving the live ISO stuck on a
+# plain TTY (multi-user.target) instead of SDDM.
+echo "Copying shared system files..."
+cp -af /root/packages/installer/system_files/shared/. /
 
-# (hyprland.desktop already created above; no niri alias needed)
+### Desktop-environment specific tweaks ###
 
 # Use GSK_RENDERER=gl for NVIDIA — workaround for GTK apps not opening
 if [[ $imageref == *-nvidia* ]]; then
@@ -208,10 +220,6 @@ systemctl set-default graphical.target
 
 # Don't show the motd verification notice
 rm -vf /etc/profile.d/verify_motd.sh
-
-echo "Copying shared system files..."
-cp -af /root/packages/installer/system_files/shared/. /
-
 
 # Remove rakuos-welcome autostart for the live environment
 rm -f /etc/xdg/autostart/rakuos-welcome.desktop
