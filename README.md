@@ -34,13 +34,32 @@ sudo ./build-local.sh 20260908
 ## What the build does
 
 - Pulls `quay.io/mindset404/hyprland-nvidia-v3:latest` (built in the
-  `tofan79/hyprland-rakuos` repo CI)
+  `tofan79/custome-rakuos` repo CI)
 - Builds a live ISO with `rakuos-forge build --livesys false` — livesys
-  handling is done manually in `config/configure-iso.sh` (SDDM X11 greeter,
-  `liveuser` autologin, and the Hyprland Wayland/UWSM session), since
-  livesys-scripts runs before the config hooks.
+  handling is done manually in `config/configure-iso.sh` (greetd +
+  Noctalia Greeter, `liveuser` autologin, and the Hyprland Wayland/UWSM
+  session), since livesys-scripts runs before the config hooks.
 - `config/pre_initramfs.sh` sets up the kernel/initramfs based on the
   NVIDIA dGPU stack.
+
+## Live greeter and autologin
+
+The live session uses **greetd with the Noctalia Greeter** — the same greeter
+as the installed image — and autologins into Hyprland for `liveuser` via
+greetd's `[initial_session]`. Log out at the live desktop and the greeter
+appears, so it is still a login screen, just not one you have to click through
+on first boot.
+
+`liveuser` is created by `livesys.service` at boot, not at build time:
+build-time `/home` is lost in the squashfs. `greetd.service` is ordered after
+`livesys.service` so the autologin does not race the user creation.
+
+The autologin command is `/usr/local/bin/live-session-launcher`, which starts
+the UWSM-managed session when a systemd `--user` bus is available and falls back
+to running Hyprland directly when it is not. Fallback exists because `uwsm`
+waits forever for `org.freedesktop.systemd1` if greetd's PAM stack lost
+`pam_systemd.so`; the script re-asserts that line after copying iso-base's
+shared files.
 
 ## Noctalia polkit agent (live session)
 

@@ -76,7 +76,7 @@ systemctl mask rakuos-overlay-sync.service rakuos-overlay-mount.service
 # /usr/share/wayland-sessions/hyprland.desktop (plain) and
 # hyprland-uwsm.desktop (UWSM-managed) entries. Symlinking one over the
 # other here — before the packages were even installed — clobbered the
-# package's own hyprland.desktop, so SDDM only ever showed one real
+# package's own hyprland.desktop, so the greeter only ever showed one real
 # session instead of both "Hyprland" and "Hyprland (uwsm)".
 # livesys_session is set below, in the live-session block (same place the
 # official ISOs set it).
@@ -113,14 +113,28 @@ echo "RakuOS release $VERSION_ID ($VERSION_CODENAME)" >/etc/system-release
 # Get shared artwork and system files from iso-base
 git clone --depth 1 --quiet https://gitlab.com/rakuos/iso/iso-base.git /root/packages
 
-# Apply iso-base's shared files FIRST. This must happen before the SDDM /
+# Apply iso-base's shared files FIRST. This must happen before the greetd /
 # livesys / graphical.target configuration below, otherwise a raw `cp -af`
-# from iso-base can silently overwrite /etc/sddm.conf.d/*, the sddm.service
+# from iso-base can silently overwrite /etc/greetd/*, the greetd.service
 # systemd drop-in, or /etc/systemd/system/default.target, undoing the
 # autologin + graphical.target setup and leaving the live ISO stuck on a
-# plain TTY (multi-user.target) instead of SDDM.
+# plain TTY (multi-user.target) instead of the greeter.
 echo "Copying shared system files..."
 cp -af /root/packages/installer/system_files/shared/. /
+
+# Re-assert pam_systemd.so in greetd's PAM stack after the cp above.
+# The image ships it (added by setup_greeter_system.sh when the image was
+# built), but the shared-files copy can clobber /etc/pam.d/greetd with
+# iso-base's version. Without pam_systemd.so, greetd's sessions never get a
+# logind session, so systemd --user never starts for them, and the autologin
+# session below cannot use uwsm -- it silently loses the systemd user manager
+# and uwsm exits waiting for org.freedesktop.systemd1 that will never appear.
+if ! grep -q 'pam_systemd\.so' /etc/pam.d/greetd 2>/dev/null; then
+    sed -i '/^session/s|^\(session\s\+include\s\+postlogin\)|\1\nsession    required     pam_systemd.so|' \
+        /etc/pam.d/greetd 2>/dev/null || true
+    grep -q 'pam_systemd\.so' /etc/pam.d/greetd 2>/dev/null || \
+        printf 'session    required     pam_systemd.so\n' >> /etc/pam.d/greetd
+fi
 
 ### Desktop-environment specific tweaks ###
 
@@ -151,7 +165,8 @@ fi
 # rakuos-forge's desktop detection - which doesn't know hyprland - is skipped)
 rum -y install livesys-scripts 2>/dev/null || true
 
-# dbus-run-session: the live Hyprland desktop runs under UWSM, but
+# dbus-run-session: the live Hyprland desktop runs under UWSM, and the
+# autologin fallback in /usr/local/bin/live-session-launcher needs it too, but
 # /usr/bin/dbus-run-session is provided by the `dbus-daemon` package, which the
 # base (dbus-broker) image doesn't ship. Install it on the live tree.
 rum -y install dbus-daemon
@@ -159,8 +174,8 @@ rum -y install dbus-daemon
 # Live session: follow the exact scheme used by the official RakuOS ISOs
 # (cosmic/gnome/niri) - livesys.service creates `liveuser` + /home/liveuser at
 # BOOT (never at build time: build-time /home is lost in the squashfs, which is
-# what caused "error 13: Permission denied"). SDDM autologin starts only in this
-# live tree, after livesys has created the user. No getty autologin, no
+# what caused "error 13: Permission denied"). greetd autologin starts only in
+# this live tree, after livesys has created the user. No getty autologin, no
 # shell-profile exec, no build-time useradd.
 echo 'livesys_session=hyprland' > /etc/sysconfig/livesys
 systemctl enable livesys.service livesys-late.service 2>/dev/null || true
@@ -189,33 +204,87 @@ mkdir -p /usr/lib/tmpfiles.d
 echo "C /var/lib/livesys/livesys-session-extra 0755 root root - /usr/share/factory/var/lib/livesys/livesys-session-extra" > \
     /usr/lib/tmpfiles.d/livesys-session-extra.conf
 
-# SDDM keeps the installed image's X11 greeter, while this ISO-only drop-in
-# enables autologin for liveuser. The systemd ordering prevents SDDM from
-# checking the user before livesys.service creates it.
-mkdir -p /etc/sddm.conf.d
-cat > /etc/sddm.conf.d/90-live.conf << 'SDDM'
-[Autologin]
-User=liveuser
-Session=hyprland-uwsm
-Relogin=false
-SDDM
+# Live greeter: greetd + noctalia-greeter, matching the installed image
+# (system_files/etc/greetd/config.toml there runs the same
+# /usr/bin/noctalia-greeter-session as default_session).
+#
+# This ISO previously ran SDDM instead, but sddm was never installed -- not in
+# the image, not in /usr/share/rakuos/packages-live.list, and nothing here
+# installed it -- so `systemctl enable sddm.service` could only ever produce an
+# ISO with no working display manager. greetd and noctalia-greeter-git are
+# already in the image, so using them needs no extra package.
+#
+# [initial_session] is greetd's autologin: it runs instead of the greeter when
+# it succeeds, and the greeter still appears if it fails or the user logs out.
+# Autologin must NOT go through uwsm's `uwsm start` unconditionally -- uwsm
+# needs a systemd --user manager, which depends on pam_systemd.so having
+# survived in greetd's PAM stack (re-asserted above). The wrapper below tries
+# uwsm and falls back to plain Hyprland so a live boot always reaches a desktop
+# instead of dropping to a TTY.
+mkdir -p /etc/greetd
+cat > /etc/greetd/config.toml << 'GREETD'
+[terminal]
+vt = 1
 
-mkdir -p /etc/systemd/system/sddm.service.d
-cat > /etc/systemd/system/sddm.service.d/90-live-session.conf << 'UNIT'
+[default_session]
+command = "/usr/bin/noctalia-greeter-session"
+user = "greeter"
+
+[initial_session]
+command = "/usr/local/bin/live-session-launcher"
+user = "liveuser"
+GREETD
+
+cat > /usr/local/bin/live-session-launcher << 'LAUNCHER'
+#!/usr/bin/env bash
+# greetd [initial_session] entry for the live ISO: start Hyprland for liveuser.
+#
+# Preferred path is the same UWSM-managed session the installed image uses
+# (/usr/share/wayland-sessions/hyprland-uwsm.desktop). uwsm needs a
+# systemd --user instance; if one is not there, `uwsm start` blocks forever
+# waiting for org.freedesktop.systemd1. So probe for it first and fall back to
+# running Hyprland directly, which needs no systemd at all.
+if [[ -S "/run/user/$(id -u)/bus" ]] && systemctl --user is-system-running >/dev/null 2>&1; then
+    exec env UWSM_SILENT_START=2 uwsm start -e -D Hyprland hyprland.desktop
+fi
+
+echo "live-session: no systemd --user bus, starting Hyprland directly" >&2
+exec dbus-run-session -- /usr/bin/start-hyprland
+LAUNCHER
+chmod 0755 /usr/local/bin/live-session-launcher
+
+# greetd must not start before livesys has created liveuser, otherwise the
+# initial_session fails on a nonexistent user and falls back to the greeter.
+mkdir -p /etc/systemd/system/greetd.service.d
+cat > /etc/systemd/system/greetd.service.d/90-live-session.conf << 'UNIT'
 [Unit]
 Wants=livesys.service
 After=livesys.service
 UNIT
 
-systemctl disable greetd.service greetd.socket 2>/dev/null || true
-systemctl unmask sddm.service 2>/dev/null || true
-systemctl enable sddm.service
+# /var is not carried into the squashfs, so the greeter account's home is gone
+# at boot even though the account itself exists in the image. Recreate it at
+# every boot or the greeter session cannot start.
+mkdir -p /usr/lib/tmpfiles.d
+cat > /usr/lib/tmpfiles.d/live-greeter.conf << 'TMPFILES'
+d /var/lib/greeter 0750 greeter greeter -
+d /var/lib/noctalia-greeter 0750 greeter greeter -
+TMPFILES
+
+systemctl enable greetd.service
+systemctl enable greetd.socket 2>/dev/null || true
+
+# If iso-base's shared files ever bring in an SDDM setup, make sure it cannot
+# compete with greetd for the display-manager slot.
+systemctl disable sddm.service 2>/dev/null || true
+systemctl mask sddm.service 2>/dev/null || true
+rm -rf /etc/sddm.conf.d /etc/systemd/system/sddm.service.d
 
 # Without this, the ISO boots straight to multi-user.target (a plain TTY
-# login prompt) even though sddm.service is "enabled" above -- enabling a
+# login prompt) even though greetd.service is "enabled" above -- enabling a
 # service only adds it to its own target's *.wants/ directory, it does NOT
 # change which target the system actually boots into. graphical.target is
-# what pulls display-manager.service (-> sddm.service) in at boot.
+# what pulls display-manager.service (-> greetd.service) in at boot.
 systemctl set-default graphical.target
 
 # Don't show the motd verification notice
