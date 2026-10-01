@@ -2,7 +2,11 @@
 # Build the RakuOS Hyprland ISO locally using the rakuos-forge binary.
 #
 # Usage: ./build-local.sh [branch_slug]
-#   branch_slug defaults to "latest" (i.e. quay.io/mindset404/hyprland-nvidia-v3:latest)
+#   branch_slug defaults to "staging"
+#   (i.e. quay.io/rakuos/rakuos-hyprland-nvidia-v3:staging)
+#
+# The image repository can be overridden with the IMAGE_REPO environment
+# variable, e.g. IMAGE_REPO=quay.io/mindset404/hyprland-nvidia-v3
 #
 # Requires `rakuos-forge` to be installed (dnf install rakuos-forge, after
 # adding https://repo.rakuos.org/rakuos.repo).
@@ -15,7 +19,7 @@ set -euo pipefail
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "Re-executing with sudo (build needs real root for privileged container setup)..."
-  exec sudo --preserve-env=COMPRESSION,BUILDER_DISTRO,PLATFORM "$0" "$@"
+  exec sudo --preserve-env=COMPRESSION,BUILDER_DISTRO,PLATFORM,IMAGE_REPO "$0" "$@"
 fi
 
 if ! command -v rakuos-forge >/dev/null 2>&1; then
@@ -31,8 +35,8 @@ rm -f "${SELF_DIR}/output.iso"
 rm -rf "${SELF_DIR}/output"
 rm -rf "${SELF_DIR}/work"
 
-IMAGE_REPO="quay.io/mindset404/hyprland-nvidia-v3"
-BRANCH_SLUG="${1:-latest}"
+IMAGE_REPO="${IMAGE_REPO:-quay.io/rakuos/rakuos-hyprland-nvidia-v3}"
+BRANCH_SLUG="${1:-staging}"
 IMAGE_REF="${IMAGE_REPO}:${BRANCH_SLUG}"
 COMPRESSION="${COMPRESSION:-squashfs}"
 PLATFORM="${PLATFORM:-amd64}"

@@ -1,7 +1,7 @@
 # RakuOS Hyprland ISO
 
 Local build scripts for the RakuOS Hyprland live ISO, built from
-`quay.io/mindset404/hyprland-nvidia-v3`.
+`quay.io/rakuos/rakuos-hyprland-nvidia-v3`.
 
 ## Requirements
 
@@ -19,22 +19,27 @@ sudo dnf install -y rakuos-forge
 ```bash
 cd rakuos-hyprland-iso
 
-# Build ISO (image: quay.io/mindset404/hyprland-nvidia-v3:latest)
+# Build ISO (image: quay.io/rakuos/rakuos-hyprland-nvidia-v3:staging)
 sudo ./build-local.sh
 
-# Or a specific date tag (e.g. kept under the retention policy)
-sudo ./build-local.sh 20260908
+# Or a specific tag
+sudo ./build-local.sh staging.20261001
+
+# Or point at a different image repository
+sudo IMAGE_REPO=quay.io/mindset404/hyprland-nvidia-v3 ./build-local.sh latest
 ```
 
 ## Output
 
-- ISO: `output/rakuos-hyprland-latest-amd64.iso`
-- SHA256: `output/rakuos-hyprland-latest-amd64.iso.sha256`
+- ISO: `output/rakuos-hyprland-staging-latest-amd64.iso`
+- SHA256: `output/rakuos-hyprland-staging-latest-amd64.iso.sha256`
+
+(The `staging-latest` part comes from the branch slug being inserted into the
+name when it is not `latest`.)
 
 ## What the build does
 
-- Pulls `quay.io/mindset404/hyprland-nvidia-v3:latest` (built in the
-  `tofan79/custome-rakuos` repo CI)
+- Pulls `quay.io/rakuos/rakuos-hyprland-nvidia-v3:staging` by default
 - Builds a live ISO with `rakuos-forge build --livesys false` — livesys
   handling is done manually in `config/configure-iso.sh` (greetd +
   Noctalia Greeter, `liveuser` autologin, and the Hyprland Wayland/UWSM
@@ -75,4 +80,10 @@ controlling terminal for the process ('/dev/tty'): No such device or address
 
 ## Image Source
 
-Image: `quay.io/mindset404/hyprland-nvidia-v3`
+Default image: `quay.io/rakuos/rakuos-hyprland-nvidia-v3:staging`
+
+Override with `IMAGE_REPO` and the first argument. Note that switching to the
+official repository means the customisations from `tofan79/custome-rakuos`
+(the Bibata cursor for the login screen, the `pam_gnome_keyring` gate, the
+opt-in `wl` blacklist and the skel device pins) are **not** present, because
+they only ever existed in that image.
