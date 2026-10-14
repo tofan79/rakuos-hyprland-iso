@@ -35,7 +35,7 @@ rm -f "${SELF_DIR}/output.iso"
 rm -rf "${SELF_DIR}/output"
 rm -rf "${SELF_DIR}/work"
 
-IMAGE_REPO="${IMAGE_REPO:-quay.io/rakuos/rakuos-hyprland-nvidia-v3}"
+IMAGE_REPO="${IMAGE_REPO:-quay.io/rakuos/rakuos-hyprland}"
 BRANCH_SLUG="${1:-staging}"
 IMAGE_REF="${IMAGE_REPO}:${BRANCH_SLUG}"
 COMPRESSION="${COMPRESSION:-squashfs}"
