@@ -3,13 +3,9 @@ set -exo pipefail
 
 echo "Preparing initramfs for RakuOS Hyprland Live ISO"
 
-# Swap kernel-p03-v3 for vanilla Fedora kernel for Secure Boot compatibility
-# This is the same approach as niri-iso
-
-# Remove every rakuos-distributed kernel variant (P03 & rakuos, stable +
-# staging) so only the vanilla Fedora kernel remains for Secure Boot. Follows
-# the same exhaustive list as the official niri-iso (rakuos-base images have
-# rotated between kernel-p03-* and kernel-rakuos-* names over time).
+# Replace RakuOS/P03 kernels with a signed Fedora kernel for Secure Boot.
+# Include the older P03 names and current RakuOS flavors (including Steam
+# Deck) because the base image has used each naming scheme over time.
 kernel_pkgs=(
     kernel-p03
     kernel-p03-core
@@ -18,101 +14,43 @@ kernel_pkgs=(
     kernel-p03-modules
     kernel-p03-modules-core
     kernel-p03-modules-extra
-    kernel-p03-v2
-    kernel-p03-v2-core
-    kernel-p03-v2-devel
-    kernel-p03-v2-devel-matched
-    kernel-p03-v2-modules
-    kernel-p03-v2-modules-core
-    kernel-p03-v2-modules-extra
-    kernel-p03-v3
-    kernel-p03-v3-core
-    kernel-p03-v3-devel
-    kernel-p03-v3-devel-matched
-    kernel-p03-v3-modules
-    kernel-p03-v3-modules-core
-    kernel-p03-v3-modules-extra
-    kernel-p03-v4
-    kernel-p03-v4-core
-    kernel-p03-v4-devel
-    kernel-p03-v4-devel-matched
-    kernel-p03-v4-modules
-    kernel-p03-v4-modules-core
-    kernel-p03-v4-modules-extra
-    kernel-p03-v2-staging
-    kernel-p03-v2-staging-core
-    kernel-p03-v2-staging-devel
-    kernel-p03-v2-staging-devel-matched
-    kernel-p03-v2-staging-modules
-    kernel-p03-v2-staging-modules-core
-    kernel-p03-v2-staging-modules-extra
-    kernel-p03-v3-staging
-    kernel-p03-v3-staging-core
-    kernel-p03-v3-staging-devel
-    kernel-p03-v3-staging-devel-matched
-    kernel-p03-v3-staging-modules
-    kernel-p03-v3-staging-modules-core
-    kernel-p03-v3-staging-modules-extra
-    kernel-p03-v4-staging
-    kernel-p03-v4-staging-core
-    kernel-p03-v4-staging-devel
-    kernel-p03-v4-staging-devel-matched
-    kernel-p03-v4-staging-modules
-    kernel-p03-v4-staging-modules-core
-    kernel-p03-v4-staging-modules-extra
-    kernel-rakuos-v2
-    kernel-rakuos-v2-core
-    kernel-rakuos-v2-devel
-    kernel-rakuos-v2-devel-matched
-    kernel-rakuos-v2-modules
-    kernel-rakuos-v2-modules-core
-    kernel-rakuos-v2-modules-extra
-    kernel-rakuos-v3
-    kernel-rakuos-v3-core
-    kernel-rakuos-v3-devel
-    kernel-rakuos-v3-devel-matched
-    kernel-rakuos-v3-modules
-    kernel-rakuos-v3-modules-core
-    kernel-rakuos-v3-modules-extra
-    kernel-rakuos-v4
-    kernel-rakuos-v4-core
-    kernel-rakuos-v4-devel
-    kernel-rakuos-v4-devel-matched
-    kernel-rakuos-v4-modules
-    kernel-rakuos-v4-modules-core
-    kernel-rakuos-v4-modules-extra
-    kernel-rakuos-v2-staging
-    kernel-rakuos-v2-staging-core
-    kernel-rakuos-v2-staging-devel
-    kernel-rakuos-v2-staging-devel-matched
-    kernel-rakuos-v2-staging-modules
-    kernel-rakuos-v2-staging-modules-core
-    kernel-rakuos-v2-staging-modules-extra
-    kernel-rakuos-v3-staging
-    kernel-rakuos-v3-staging-core
-    kernel-rakuos-v3-staging-devel
-    kernel-rakuos-v3-staging-devel-matched
-    kernel-rakuos-v3-staging-modules
-    kernel-rakuos-v3-staging-modules-core
-    kernel-rakuos-v3-staging-modules-extra
-    kernel-rakuos-v4-staging
-    kernel-rakuos-v4-staging-core
-    kernel-rakuos-v4-staging-devel
-    kernel-rakuos-v4-staging-devel-matched
-    kernel-rakuos-v4-staging-modules
-    kernel-rakuos-v4-staging-modules-core
-    kernel-rakuos-v4-staging-modules-extra
 )
-rum -y versionlock delete "${kernel_pkgs[@]}" 2>/dev/null || true
-rum --setopt=protect_running_kernel=False -y remove "${kernel_pkgs[@]}" 2>/dev/null || true
+for flavor in p03 rakuos rakuos-deck; do
+    for isa in v2 v3 v4; do
+        for channel in "" -staging; do
+            for sub in "" -core -devel -devel-matched -modules -modules-core -modules-extra; do
+                kernel_pkgs+=("kernel-${flavor}-${isa}${channel}${sub}")
+            done
+        done
+    done
+done
+
+# Query only installed packages: asking rum to remove a mixed list of present
+# and absent names can make it refuse the entire removal. rpm bypasses rum's
+# running-kernel protection during this image build.
+mapfile -t installed_kernel_pkgs < <(
+    rpm -q --qf '%{NAME}\n' "${kernel_pkgs[@]}" 2>/dev/null || true
+)
+if [ "${#installed_kernel_pkgs[@]}" -gt 0 ]; then
+    rum -y versionlock delete "${installed_kernel_pkgs[@]}" 2>/dev/null || true
+    rpm -e --nodeps --noscripts "${installed_kernel_pkgs[@]}"
+fi
+
+leftover="$(rpm -qa 'kernel-rakuos*' 'kernel-p03*')"
+if [ -n "$leftover" ]; then
+    echo "ERROR: RakuOS/P03 kernel packages still installed:"
+    echo "$leftover"
+    exit 1
+fi
+
+# Remove module trees from the image before installing the Fedora kernel.
 (cd /usr/lib/modules && rm -rf -- ./*)
 
-# Install vanilla Fedora kernel
-rum -y --repo fedora,updates --setopt=tsflags=noscripts install \
-    --exclude='kernel-p03*' --exclude='kernel-rakuos*' \
-    kernel kernel-core kernel-devel kernel-modules
+rum -y --repo fedora,updates --setopt=tsflags=noscripts \
+    --exclude='kernel-rakuos*' --exclude='kernel-p03*' \
+    install kernel kernel-core kernel-devel kernel-modules
 
-# Install firmware packages
+# Install firmware packages needed by common live hardware.
 rum -y install \
     amd-gpu-firmware \
     amd-ucode-firmware \
@@ -122,18 +60,15 @@ rum -y install \
     nvidia-gpu-firmware \
     NetworkManager-wifi
 
-# Get vanilla kernel version
 KVER="$(rpm -q kernel-core --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort -V | tail -1)"
 echo "Using vanilla kernel: $KVER"
 
-# Rebuild modules
-akmods --force --kernels "$KVER" 2>/dev/null || true
+# Fail the ISO build if out-of-tree modules cannot be rebuilt for this kernel.
+akmods --force --kernels "$KVER"
 
-# Create initramfs
-kernel=$(find /usr/lib/modules -maxdepth 1 -type d -printf '%P\n' | grep .)
-depmod "$kernel"
+# Keep only the Fedora kernel module tree and generate its dependency map.
+find /usr/lib/modules -mindepth 1 -maxdepth 1 ! -name "$KVER" -print -exec rm -rf {} +
+depmod "$KVER"
 
-# Clean
 rum clean all -yq
-
 echo "Initramfs preparation complete"
