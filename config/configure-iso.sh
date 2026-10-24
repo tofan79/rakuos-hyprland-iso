@@ -13,9 +13,12 @@ if [ -n "${VERSION_ID:-}" ]; then
     done
     rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-terra${VERSION_ID}* 2>/dev/null || true
 fi
-# Fallback: if the fetched key still doesn't match, disable sig checks for terra
-# (build-time only; no packages are installed from terra during ISO assembly).
-sed -ri 's/^(gpgcheck|repo_gpgcheck)=1/\1=0/' /etc/yum.repos.d/terra.repo
+# Fallback: if the fetched key still doesn't match, disable sig checks for any
+# Terra repo files present. Some base images do not include Terra at all.
+for _repo in /etc/yum.repos.d/terra*.repo; do
+    [ -f "$_repo" ] || continue
+    sed -ri 's/^(gpgcheck|repo_gpgcheck)=1/\1=0/' "$_repo"
+done
 
 # Make dnf/rum resilient to flaky mirrorlists (rpmfusion & co often return no
 # usable mirror on a transient basis, which would fail the whole ISO build).

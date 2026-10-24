@@ -29,7 +29,8 @@ done
 # and absent names can make it refuse the entire removal. rpm bypasses rum's
 # running-kernel protection during this image build.
 mapfile -t installed_kernel_pkgs < <(
-    rpm -q --qf '%{NAME}\n' "${kernel_pkgs[@]}" 2>/dev/null || true
+    rpm -q --qf '%{NAME}\n' "${kernel_pkgs[@]}" 2>/dev/null \
+        | grep -v ' is not installed$' || true
 )
 if [ "${#installed_kernel_pkgs[@]}" -gt 0 ]; then
     rum -y versionlock delete "${installed_kernel_pkgs[@]}" 2>/dev/null || true
@@ -62,6 +63,12 @@ rum -y install \
 
 KVER="$(rpm -q kernel-core --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort -V | tail -1)"
 echo "Using vanilla kernel: $KVER"
+
+# akmods is not included in the current base image. Install it from RPM Fusion
+# before rebuilding any out-of-tree modules for the live kernel.
+rum -y \
+    --enablerepo=rpmfusion-free,rpmfusion-nonfree \
+    install akmods
 
 # Fail the ISO build if out-of-tree modules cannot be rebuilt for this kernel.
 akmods --force --kernels "$KVER"
