@@ -1,21 +1,42 @@
 #!/usr/bin/env bash
-# Diambil dari repo resmi rakuos-minimal-iso (gitlab.com/rakuos/iso/rakuos-minimal-iso).
-# Logikanya dipakai apa adanya: forge membangun initramfs dengan query hardcoded
-# `rpm -q kernel`, jadi live ISO wajib punya paket kernel Fedora; kernel RakuOS
-# (dan rakuos-kmod-* yang dibangun untuknya) harus benar-benar hilang dulu.
-# Sistem hasil install tetap memakai kernel-rakuos dari image target.
+# pre_initramfs hook ISO RakuOS Minimal (branch `minimal`).
+#
+# Isinya sengaja disamakan dengan branch `main` (ISO Hyprland) yang sudah
+# terbukti jalan, hanya teks echo yang diganti:
+#
+#   1. buang kernel RakuOS/P03 dari rootfs live,
+#   2. pasang kernel Fedora (forge membangun initramfs dengan query
+#      hardcoded `rpm -q kernel`, jadi paket bernama `kernel` wajib ada),
+#   3. pasang firmware yang dipakai hardware umum,
+#   4. rebuild akmod untuk kernel Fedora itu,
+#   5. sisakan hanya module tree kernel Fedora.
+#
+# Yang TIDAK diambil dari hook resmi rakuos-minimal-iso: daftar firmware
+# lengkap + akmod-wl/broadcom-wl. Dua hal itu yang bikin build gagal di lane
+# Fedora 45 (repo rpmfusion-nonfree-updates masih 404, paket zd1211-firmware
+# sudah dihapus). Kalau nanti Wi-Fi Broadcom dibutuhkan di live session,
+# tambahkan lagi setelah lane 45 stabil.
+#
+# Sistem hasil install tidak terpengaruh: bootc menulis image target ke disk,
+# jadi tetap kernel-rakuos dari image.
+
 set -exo pipefail
 
-echo "Preparing initramfs for RakuOS Linux Live ISO"
+echo "Preparing initramfs for RakuOS Minimal Live ISO"
 
-# Swap the RakuOS kernel for a vanilla signed Fedora kernel so the live ISO
-# boots with Secure Boot enabled. The installed system gets kernel-rakuos
-# from the container image — this only affects the live boot environment.
-# Every RakuOS kernel package the image can carry: both flavors (kernel-rakuos
-# and the Steam Deck kernel-rakuos-deck), each x86-64 level, stable and
-# staging, with all their subpackages.
-kernel_pkgs=()
-for flavor in rakuos rakuos-deck; do
+# Replace RakuOS/P03 kernels with a signed Fedora kernel for Secure Boot.
+# Include the older P03 names and current RakuOS flavors (including Steam
+# Deck) because the base image has used each naming scheme over time.
+kernel_pkgs=(
+    kernel-p03
+    kernel-p03-core
+    kernel-p03-devel
+    kernel-p03-devel-matched
+    kernel-p03-modules
+    kernel-p03-modules-core
+    kernel-p03-modules-extra
+)
+for flavor in p03 rakuos rakuos-deck; do
     for isa in v2 v3 v4; do
         for channel in "" -staging; do
             for sub in "" -core -devel -devel-matched -modules -modules-core -modules-extra; do
@@ -24,82 +45,65 @@ for flavor in rakuos rakuos-deck; do
         done
     done
 done
-# Only the ones actually installed: given names that aren't installed, the
-# removal refuses everything, which used to leave the RakuOS kernel (and its
-# -devel, so akmod-wl's posttrans built wl for it too) in the live image.
-# rpm directly, without scriptlets or dependency checks: rum protects
-# kernels, and the kernel's removal scriptlets don't apply in an image
-# build. No "|| true": a RakuOS kernel left behind must stop the build.
-mapfile -t installed_kernel_pkgs < <(rpm -q --qf '%{NAME}\n' "${kernel_pkgs[@]}" | grep -v ' is not installed$' || true)
+
+# Query only installed packages: asking rum to remove a mixed list of present
+# and absent names can make it refuse the entire removal. rpm bypasses rum's
+# running-kernel protection during this image build.
+mapfile -t installed_kernel_pkgs < <(
+    rpm -q --qf '%{NAME}\n' "${kernel_pkgs[@]}" 2>/dev/null \
+        | grep -v ' is not installed$' || true
+)
 if [ "${#installed_kernel_pkgs[@]}" -gt 0 ]; then
     rum -y versionlock delete "${installed_kernel_pkgs[@]}" 2>/dev/null || true
     rpm -e --nodeps --noscripts "${installed_kernel_pkgs[@]}"
 fi
-leftover="$(rpm -qa 'kernel-rakuos*')"
-if [ -n "$leftover" ]; then
-    echo "ERROR: RakuOS kernel packages still installed:"; echo "$leftover"; exit 1
-fi
-# The image's RakuOS-signed drivers (rakuos-kmod-*) are built for the RakuOS
-# kernels removed above, and rakuos-kmod-wl conflicts with the akmod-wl
-# installed below for the Fedora kernel. --nodeps keeps their companion
-# packages (broadcom-wl, ...), whose <name>-kmod the akmods take over.
-mapfile -t rakuos_kmods < <(rpm -qa --qf '%{NAME}\n' 'rakuos-kmod-*')
-if [ "${#rakuos_kmods[@]}" -gt 0 ]; then
-    rpm -e --nodeps "${rakuos_kmods[@]}"
-fi
-(cd /usr/lib/modules && rm -rf -- ./*)
-# --exclude: nothing may pull a RakuOS or deck kernel back into the live image.
-rum -y --repo fedora,updates --setopt=tsflags=noscripts --exclude='kernel-rakuos*' install kernel kernel-core kernel-devel kernel-modules
 
-# akmods and akmod-wl build Broadcom Wi-Fi for the live session's Fedora
-# kernel (akmods --force below). Images no longer ship akmods, and RPM
-# Fusion, where akmod-wl and broadcom-wl come from, is off by default, so
-# its package repos are enabled for this one command.
-#
-# rpmfusion-nonfree-updates is deliberately NOT enabled: for Fedora 45 the
-# metalink (repo=nonfree-fedora-updates-released-45) still returns HTTP 404
-# because that lane has no updates-released repo yet, and dnf/rum aborts the
-# whole transaction when a repo fails to load. akmod-wl and broadcom-wl live
-# in the nonfree base repo, so the updates repo is not needed.
-#
-# zd1211-firmware is also gone from Fedora 45 (dropped after F42); asking for
-# it fails the whole transaction, and no repo replaces it.
-rum -y --exclude='kernel-rakuos*' \
-    --enablerepo=rpmfusion-free,rpmfusion-free-updates,rpmfusion-nonfree \
-    install \
-    akmods \
-    akmod-wl \
-    virtualbox-guest-additions \
+leftover="$(rpm -qa 'kernel-rakuos*' 'kernel-p03*')"
+if [ -n "$leftover" ]; then
+    echo "ERROR: RakuOS/P03 kernel packages still installed:"
+    echo "$leftover"
+    exit 1
+fi
+
+# Remove module trees from the image before installing the Fedora kernel.
+(cd /usr/lib/modules && rm -rf -- ./*)
+
+rum -y --repo fedora,updates --setopt=tsflags=noscripts \
+    --exclude='kernel-rakuos*' --exclude='kernel-p03*' \
+    install kernel kernel-core kernel-devel kernel-modules
+
+# Install firmware packages needed by common live hardware.
+rum -y install \
     amd-gpu-firmware \
     amd-ucode-firmware \
-    cirrus-audio-firmware \
     intel-audio-firmware \
     intel-gpu-firmware \
     linux-firmware \
     nvidia-gpu-firmware \
-    qcom-wwan-firmware \
-    atheros-firmware \
-    b43-fwcutter \
-    b43-openfwwf \
-    brcmfmac-firmware \
-    iwlegacy-firmware \
-    iwlwifi-dvm-firmware \
-    iwlwifi-mvm-firmware \
-    libertas-firmware \
-    mt7xxx-firmware \
-    nxpwireless-firmware \
-    realtek-firmware \
-    tiwilink-firmware \
-    atmel-firmware \
-    broadcom-wl \
     NetworkManager-wifi
 
 KVER="$(rpm -q kernel-core --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort -V | tail -1)"
+echo "Using vanilla kernel: $KVER"
+
+# akmods is not included in the current base image. Install it from RPM Fusion
+# before rebuilding any out-of-tree modules for the live kernel.
+rum -y \
+    --enablerepo=rpmfusion-free,rpmfusion-nonfree \
+    install akmods
+
+# The akmods package creates /usr/src/akmods through tmpfiles, which does not
+# run in this rootfs build; without the directory akmods exits 1 even when
+# there is nothing to build (the minimal image ships no akmod packages).
+install -d /usr/src/akmods
+
+# Fail the ISO build if out-of-tree modules cannot be rebuilt for this kernel.
+# With no akmod packages installed this only prints "nothing to do" and
+# exits 0.
 akmods --force --kernels "$KVER"
 
-# Only the Fedora kernel belongs in the live image; drop any other modules
-# tree (one appearing here means something built for a kernel that should be
-# gone).
+# Keep only the Fedora kernel module tree and generate its dependency map.
 find /usr/lib/modules -mindepth 1 -maxdepth 1 ! -name "$KVER" -print -exec rm -rf {} +
 depmod "$KVER"
+
 rum clean all -yq
+echo "Initramfs preparation complete"
