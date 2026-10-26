@@ -55,8 +55,17 @@ rum -y --repo fedora,updates --setopt=tsflags=noscripts --exclude='kernel-rakuos
 # kernel (akmods --force below). Images no longer ship akmods, and RPM
 # Fusion, where akmod-wl and broadcom-wl come from, is off by default, so
 # its package repos are enabled for this one command.
+#
+# rpmfusion-nonfree-updates is deliberately NOT enabled: for Fedora 45 the
+# metalink (repo=nonfree-fedora-updates-released-45) still returns HTTP 404
+# because that lane has no updates-released repo yet, and dnf/rum aborts the
+# whole transaction when a repo fails to load. akmod-wl and broadcom-wl live
+# in the nonfree base repo, so the updates repo is not needed.
+#
+# zd1211-firmware is also gone from Fedora 45 (dropped after F42); asking for
+# it fails the whole transaction, and no repo replaces it.
 rum -y --exclude='kernel-rakuos*' \
-    --enablerepo=rpmfusion-free,rpmfusion-free-updates,rpmfusion-nonfree,rpmfusion-nonfree-updates \
+    --enablerepo=rpmfusion-free,rpmfusion-free-updates,rpmfusion-nonfree \
     install \
     akmods \
     akmod-wl \
@@ -82,7 +91,6 @@ rum -y --exclude='kernel-rakuos*' \
     realtek-firmware \
     tiwilink-firmware \
     atmel-firmware \
-    zd1211-firmware \
     broadcom-wl \
     NetworkManager-wifi
 
