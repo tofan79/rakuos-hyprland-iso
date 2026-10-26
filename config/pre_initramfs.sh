@@ -31,7 +31,24 @@ pm_install \
     NetworkManager-wifi || true
 
 # Peta dependensi modul harus ada sebelum initramfs dibangun.
-depmod -a
+#
+# JANGAN pakai `depmod -a` tanpa argumen. Hook ini berjalan di container yang
+# memakai kernel HOST (lewat --rootfs), jadi `uname -r` mengembalikan kernel
+# Ryoku di mesin build (mis. 7.3.0-rakuos.2.v3.staging.fc45), bukan kernel yang
+# ada di rootfs image (mis. 7.3.0-rakuos.3.v2.staging.fc45). Gejalanya:
+#   depmod: ERROR: could not open directory /lib/modules/7.3.0-rakuos.2.v3...
+# Petakan setiap module tree yang benar-benar ada di rootfs.
+modules_found=0
+for dir in /lib/modules/*/; do
+    [ -d "$dir" ] || continue
+    kver="$(basename "$dir")"
+    echo "depmod untuk kernel rootfs: $kver"
+    depmod -a "$kver"
+    modules_found=1
+done
+if [ "$modules_found" -eq 0 ]; then
+    echo "Tidak ada /lib/modules/* di rootfs; depmod dilewati (dracut menanganinya)."
+fi
 
 # Buang cache paket supaya tidak ikut masuk ke squashfs live.
 if command -v rum >/dev/null 2>&1; then
