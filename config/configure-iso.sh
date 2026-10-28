@@ -109,6 +109,27 @@ chmod 0755 /usr/local/bin/rakuos-live-installer
 systemctl set-default multi-user.target
 systemctl enable getty@tty1.service
 
+# Image membawa kmscon. kmsconvt@.service punya
+#   Conflicts=getty@%i.service
+#   Alias=autovt@.service
+#   Before=getty.target
+# jadi di tty1 kmscon selalu menang atas getty@tty1, dan autologin root kita
+# tidak pernah dipakai: yang muncul adalah prompt login kmscon (tanpa
+# kredensial yang berguna, karena root di image ini terkunci). Matikan kmscon
+# dan arahkan autovt@ (VT yang dibuat on-demand) kembali ke getty.
+systemctl mask kmsconvt@.service
+rm -f /etc/systemd/system/getty.target.wants/kmsconvt@tty*.service
+ln -sf /usr/lib/systemd/system/getty@.service /etc/systemd/system/autovt@.service
+
+# tty2-tty6 tetap getty biasa untuk melihat log saat installer bermasalah.
+for t in 2 3 4 5 6; do
+    systemctl enable "getty@tty$t.service" 2>/dev/null || true
+done
+
+# Live session memang tanpa password (tty1 sudah autologin root). Kalau
+# autologin gagal, login manual di tty lain cukup tekan Enter.
+passwd -d root || true
+
 # Kalau image/iso-base membawa display manager, pastikan tidak menyerobot tty1.
 for dm in greetd.service gdm.service sddm.service lightdm.service; do
     systemctl disable "$dm" 2>/dev/null || true
